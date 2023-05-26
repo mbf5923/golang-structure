@@ -14,7 +14,7 @@ import (
 	middleware "mbf5923.com/todo/middlewares"
 )
 
-func InitUserRoutes(db *gorm.DB, route *gin.Engine) {
+func InitTaskRoutes(db *gorm.DB, route *gin.Engine) {
 	createRepository := createControllerTask.NewRepositoryCreateTask(db)
 	createService := createControllerTask.NewServiceCreate(createRepository)
 	createHandler := handlerCreateTask.NewHandlerCreateTask(createService)
