@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -15,23 +16,21 @@ import (
 
 type server struct {
 	auth_pb.UnimplementedAuthServiceServer
-	Dbconnection *gorm.DB
+	DbConnection *gorm.DB
 }
 
 func (s *server) mustEmbedUnimplementedAuthServiceServer() {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (s *server) connectToDb() {
-	//TODO implement me
-	s.Dbconnection = config.Connection()
+	s.DbConnection = config.Connection()
 }
 
 func main() {
-	fmt.Println("GRPC Server is running...")
-
-	lis, err := net.Listen("tcp", ":"+util.GodotEnv("GRPC_PORT"))
+	grpcPort := util.GodotEnv("USER_GRPC_PORT")
+	fmt.Println("GRPC Server is running on port: ", grpcPort)
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", grpcPort))
 	if err != nil {
 		defer logrus.Info("Running GRPC Failed")
 		logrus.Fatal(err.Error())
@@ -40,7 +39,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 
 	auth_pb.RegisterAuthServiceServer(grpcServer, &server{
-		Dbconnection: config.Connection(),
+		DbConnection: config.Connection(),
 	})
 
 	if err := grpcServer.Serve(lis); err != nil {
@@ -50,19 +49,19 @@ func main() {
 }
 
 func (s *server) Auth(ctx context.Context, req *auth_pb.AuthRequest) (*auth_pb.AuthResponse, error) {
-	fmt.Printf("Received Sum RPC: %v", req)
-
 	token := req.GetToken()
 
 	var user modelUser.EntityUsers
-	err := s.Dbconnection.Table("entity_users").Where("api_key = ?", token).First(&user).Error
-	//err := config.Connection().Table("entity_users").Where("api_key = ?", token).First(&user).Error
+	err := s.DbConnection.Where("api_key = ?", token).First(&user).Error
 	if err != nil {
 		return nil, err
 	} else {
-		res := &auth_pb.AuthResponse{
-			Id: uint32(user.ID),
+		js, err := json.Marshal(user)
+		if err != nil {
+			return nil, err
 		}
-		return res, nil
+		var res auth_pb.AuthResponse
+		json.Unmarshal(js, &res)
+		return &res, nil
 	}
 }

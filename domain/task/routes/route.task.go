@@ -31,9 +31,9 @@ func InitTaskRoutes(db *gorm.DB, route *gin.Engine) {
 	deleteService := deleteControllerTask.NewServiceDelete(deleteRepository)
 	deleteHandler := handlerDeleteTask.NewHandlerDeleteTask(deleteService)
 
-	groupRoute := route.Group("/api/v1").Use(grpcAuthMiddleware.Auth(db))
-	groupRoute.POST("/task", createHandler.CreateStudentHandler)
-	groupRoute.GET("/task/:id", showHandler.ShowTaskHandler)
-	groupRoute.GET("/task", listHandler.ListTaskHandler)
-	groupRoute.DELETE("/task/:id", deleteHandler.DeleteTaskHandler)
+	groupRoute := route.Group("api/v1").Use(grpcAuthMiddleware.Auth())
+	groupRoute.POST("task", createHandler.CreateStudentHandler)
+	groupRoute.GET("task/:id", showHandler.ShowTaskHandler)
+	groupRoute.GET("task", listHandler.ListTaskHandler)
+	groupRoute.DELETE("task/:id", deleteHandler.DeleteTaskHandler)
 }

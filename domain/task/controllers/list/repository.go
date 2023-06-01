@@ -26,8 +26,7 @@ func (r *repository) ListTaskRepository(ctx *gin.Context) (*[]modelTask.EntityTa
 	errorCode := make(chan string, 1)
 	user, _ := ctx.Get("user")
 	uid := user.(*modelUser.EntityUsers).ID
-	println("uid:", uid)
-	resultStudents := db.Debug().Select("*").Where("user_id=?", uid).Find(&task)
+	resultStudents := db.Select("*").Where("user_id=?", uid).Find(&task)
 
 	if resultStudents.RowsAffected < 1 {
 		errorCode <- "RESULT_TASK_NOT_FOUND_404"

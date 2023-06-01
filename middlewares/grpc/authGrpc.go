@@ -2,20 +2,21 @@ package grpcAuthMiddleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"gorm.io/gorm"
 	"log"
 	modelUser "mbf5923.com/todo/domain/user/models"
-	auth_pb "mbf5923.com/todo/servicepb/authpb"
+	authPb "mbf5923.com/todo/servicepb/authpb"
+	util "mbf5923.com/todo/utils"
 	"net/http"
 	"strings"
 )
 
-type UnathorizatedError struct {
+type UnAuthorizedError struct {
 	Status  string `json:"status"`
 	Code    int    `json:"code"`
 	Method  string `json:"method"`
@@ -26,11 +27,11 @@ type UserClaims struct {
 	jwt.StandardClaims
 }
 
-func Auth(db *gorm.DB) gin.HandlerFunc {
+func Auth() gin.HandlerFunc {
 
 	return gin.HandlerFunc(func(ctx *gin.Context) {
 
-		var errorResponse UnathorizatedError
+		var errorResponse UnAuthorizedError
 
 		errorResponse.Status = "Forbidden"
 		errorResponse.Code = http.StatusForbidden
@@ -43,14 +44,20 @@ func Auth(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var token = strings.Split(ctx.GetHeader("Authorization"), " ")[1]
-		cc, err := grpc.Dial(":50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		userGrpcUrl := fmt.Sprintf("%s:%s", util.GodotEnv("USER_GRPC_HOST"), util.GodotEnv("USER_GRPC_PORT"))
+		grpcClient, err := grpc.Dial(userGrpcUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Fatalf("could not connect to server: %v", err)
 		}
-		defer cc.Close()
-		c := auth_pb.NewAuthServiceClient(cc)
+		defer func(grpcClient *grpc.ClientConn) {
+			err := grpcClient.Close()
+			if err != nil {
+				log.Printf("Error while calling sum RPC: %v", err)
+			}
+		}(grpcClient)
+		authServer := authPb.NewAuthServiceClient(grpcClient)
 		var user modelUser.EntityUsers
-		err = doSum(c, token, &user)
+		err = doAuth(authServer, token, &user)
 
 		errorResponse.Status = "Unathorize"
 		errorResponse.Code = http.StatusUnauthorized
@@ -63,28 +70,28 @@ func Auth(db *gorm.DB) gin.HandlerFunc {
 		} else {
 			// global value result
 			ctx.Set("user", &user)
-			// return to next method if token is exist
+			// return to next method if token is exists
 			ctx.Next()
 		}
 	})
 }
 
-func doSum(c auth_pb.AuthServiceClient, token string, user *modelUser.EntityUsers) error {
-	fmt.Println("Starting to do a sum RPC")
-
-	req := &auth_pb.AuthRequest{
+func doAuth(authServer authPb.AuthServiceClient, token string, user *modelUser.EntityUsers) error {
+	req := &authPb.AuthRequest{
 		Token: token,
 	}
 
-	res, err := c.Auth(context.Background(), req)
+	res, err := authServer.Auth(context.Background(), req)
 	if err != nil {
 		log.Printf("Error while calling sum RPC: %v", err)
 		return err
 	}
-
-	log.Printf("Response from server: %v", res.Id)
-
-	user.ID = uint(res.Id)
+	js, err := json.Marshal(res)
+	if err != nil {
+		log.Printf("Error while calling sum RPC: %v", err)
+		return err
+	}
+	err = json.Unmarshal(js, &user)
 
 	return nil
 }

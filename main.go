@@ -21,6 +21,9 @@ func main() {
 func SetupRouter() *gin.Engine {
 	db := config.Connection()
 	router := gin.Default()
+	router.SetTrustedProxies([]string{
+		util.GodotEnv("USER_GRPC_HOST"),
+	})
 	if util.GodotEnv("GO_ENV") != "production" && util.GodotEnv("GO_ENV") != "test" {
 		gin.SetMode(gin.DebugMode)
 	} else if util.GodotEnv("GO_ENV") == "test" {
