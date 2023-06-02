@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -13,11 +14,13 @@ import (
 	authPb "mbf5923.com/todo/servicepb/authpb"
 	util "mbf5923.com/todo/utils"
 	"net"
+	"time"
 )
 
 type server struct {
 	authPb.UnimplementedAuthServiceServer
-	DbConnection *gorm.DB
+	DbConnection    *gorm.DB
+	RedisConnection *redis.Client
 }
 
 func (s *server) mustEmbedUnimplementedAuthServiceServer() {
@@ -36,11 +39,16 @@ func main() {
 		defer logrus.Info("Running GRPC Failed")
 		logrus.Fatal(err.Error())
 	}
+	//Grpc Server Config Middleware
+	opts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(ContextPropagationUnaryServerInterceptor()),
+	}
 	// Make a gRPC server
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(opts...)
 
 	authPb.RegisterAuthServiceServer(grpcServer, &server{
-		DbConnection: config.Connection(),
+		DbConnection:    config.Connection(),
+		RedisConnection: config.RedisConnection(),
 	})
 
 	if err := grpcServer.Serve(lis); err != nil {
@@ -51,11 +59,9 @@ func main() {
 
 func (s *server) Auth(ctx context.Context, req *authPb.AuthRequest) (*authPb.AuthResponse, error) {
 	token := req.GetToken()
-	if metad, ok := metadata.FromIncomingContext(ctx); ok {
-		println(fmt.Sprintf("Called Form: %s", metad.Get("serviceName")))
-	}
 	var user modelUser.EntityUsers
-	err := s.DbConnection.Where("api_key = ?", token).First(&user).Error
+
+	err := s.DbConnection.Debug().Where("api_key = ?", token).First(&user).Error
 	if err != nil {
 		return nil, err
 	} else {
@@ -68,6 +74,28 @@ func (s *server) Auth(ctx context.Context, req *authPb.AuthRequest) (*authPb.Aut
 		if unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
+		//set in redis with time expired 10 seconds
+		err := s.RedisConnection.Set(ctx, token, js, 10*time.Second).Err()
+		if err != nil {
+			logrus.Info("Error Save Redis: ", err.Error())
+			return nil, err
+		}
+
 		return &res, nil
+	}
+}
+
+func ContextPropagationUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			println(fmt.Sprintf("Called Form: %s", md.Get("serviceName")))
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		return handler(ctx, req)
 	}
 }

@@ -20,6 +20,7 @@ func main() {
 
 func SetupRouter() *gin.Engine {
 	db := config.Connection()
+	redisConnection := config.RedisConnection()
 	router := gin.Default()
 	router.SetTrustedProxies([]string{
 		util.GodotEnv("USER_GRPC_HOST"),
@@ -41,7 +42,7 @@ func SetupRouter() *gin.Engine {
 	router.Use(gzip.Gzip(gzip.BestCompression))
 
 	routeUser.InitUserRoutes(db, router)
-	routeTask.InitTaskRoutes(db, router)
+	routeTask.InitTaskRoutes(db, router, redisConnection)
 	//route.InitAuthRoutes(db, router)
 	//route.InitStudentRoutes(db, router)
 

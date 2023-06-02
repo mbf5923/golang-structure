@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -28,7 +29,7 @@ type UserClaims struct {
 	jwt.StandardClaims
 }
 
-func Auth() gin.HandlerFunc {
+func Auth(redisConnection *redis.Client) gin.HandlerFunc {
 
 	return gin.HandlerFunc(func(ctx *gin.Context) {
 
@@ -58,7 +59,7 @@ func Auth() gin.HandlerFunc {
 		}(grpcClient)
 		authServer := authPb.NewAuthServiceClient(grpcClient)
 		var user modelUser.EntityUsers
-		err = doAuth(authServer, token, &user)
+		err = doAuth(authServer, token, &user, *redisConnection)
 
 		errorResponse.Status = "Unathorize"
 		errorResponse.Code = http.StatusUnauthorized
@@ -77,11 +78,20 @@ func Auth() gin.HandlerFunc {
 	})
 }
 
-func doAuth(authServer authPb.AuthServiceClient, token string, user *modelUser.EntityUsers) error {
+func doAuth(authServer authPb.AuthServiceClient, token string, user *modelUser.EntityUsers, redisConnection redis.Client) error {
+	ctx := context.Background()
+	userFromRedis, err := redisConnection.Get(ctx, token).Result()
+	if err == nil {
+		unmarshalErr := json.Unmarshal([]byte(userFromRedis), &user)
+		if unmarshalErr != nil {
+			return err
+		}
+		return nil
+	}
 	req := &authPb.AuthRequest{
 		Token: token,
 	}
-	ctx := context.Background()
+
 	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("serviceName", "TaskService"))
 	res, err := authServer.Auth(ctx, req)
 	if err != nil {
