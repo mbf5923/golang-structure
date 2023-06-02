@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"google.golang.org/grpc"
@@ -18,38 +17,23 @@ import (
 	"strings"
 )
 
-type UnAuthorizedError struct {
-	Status  string `json:"status"`
-	Code    int    `json:"code"`
-	Method  string `json:"method"`
-	Message string `json:"message"`
-}
-type UserClaims struct {
-	ID string `json:"id"`
-	jwt.StandardClaims
-}
-
 func Auth(redisConnection *redis.Client) gin.HandlerFunc {
 
 	return gin.HandlerFunc(func(ctx *gin.Context) {
-
-		var errorResponse UnAuthorizedError
-
-		errorResponse.Status = "Forbidden"
-		errorResponse.Code = http.StatusForbidden
-		errorResponse.Method = ctx.Request.Method
-		errorResponse.Message = "Authorization is required for this endpoint"
-
-		if ctx.GetHeader("Authorization") == "" {
-			ctx.JSON(http.StatusForbidden, errorResponse)
+		authorizationHeader := ctx.GetHeader("Authorization")
+		if authorizationHeader == "" {
+			util.APIResponse(ctx, "Authorization is required for this endpoint", http.StatusForbidden, ctx.Request.Method, nil)
 			defer ctx.AbortWithStatus(http.StatusForbidden)
+			return
 		}
 
-		var token = strings.Split(ctx.GetHeader("Authorization"), " ")[1]
+		var token = strings.Split(authorizationHeader, " ")[1]
 		userGrpcUrl := fmt.Sprintf("%s:%s", util.GodotEnv("USER_GRPC_HOST"), util.GodotEnv("USER_GRPC_PORT"))
 		grpcClient, err := grpc.Dial(userGrpcUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			log.Fatalf("could not connect to server: %v", err)
+			util.APIResponse(ctx, "GRPC Server Error", http.StatusInternalServerError, ctx.Request.Method, nil)
+			defer ctx.AbortWithStatus(http.StatusInternalServerError)
+			return
 		}
 		defer func(grpcClient *grpc.ClientConn) {
 			err := grpcClient.Close()
@@ -60,15 +44,10 @@ func Auth(redisConnection *redis.Client) gin.HandlerFunc {
 		authServer := authPb.NewAuthServiceClient(grpcClient)
 		var user modelUser.EntityUsers
 		err = doAuth(authServer, token, &user, *redisConnection)
-
-		errorResponse.Status = "Unathorize"
-		errorResponse.Code = http.StatusUnauthorized
-		errorResponse.Method = ctx.Request.Method
-		errorResponse.Message = "accessToken invalid or expired"
-
 		if err != nil {
-			ctx.JSON(http.StatusUnauthorized, errorResponse)
+			util.APIResponse(ctx, "AccessToken invalid or expired", http.StatusUnauthorized, ctx.Request.Method, nil)
 			defer ctx.AbortWithStatus(http.StatusUnauthorized)
+			return
 		} else {
 			// global value result
 			ctx.Set("user", &user)
