@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"log"
 	modelUser "mbf5923.com/todo/domain/user/models"
 	authPb "mbf5923.com/todo/servicepb/authpb"
@@ -80,8 +81,9 @@ func doAuth(authServer authPb.AuthServiceClient, token string, user *modelUser.E
 	req := &authPb.AuthRequest{
 		Token: token,
 	}
-
-	res, err := authServer.Auth(context.Background(), req)
+	ctx := context.Background()
+	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("serviceName", "TaskService"))
+	res, err := authServer.Auth(ctx, req)
 	if err != nil {
 		log.Printf("Error while calling sum RPC: %v", err)
 		return err

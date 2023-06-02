@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"gorm.io/gorm"
 	config "mbf5923.com/todo/configs"
 	modelUser "mbf5923.com/todo/domain/user/models"
-	auth_pb "mbf5923.com/todo/servicepb/authpb"
+	authPb "mbf5923.com/todo/servicepb/authpb"
 	util "mbf5923.com/todo/utils"
 	"net"
 )
 
 type server struct {
-	auth_pb.UnimplementedAuthServiceServer
+	authPb.UnimplementedAuthServiceServer
 	DbConnection *gorm.DB
 }
 
@@ -38,7 +39,7 @@ func main() {
 	// Make a gRPC server
 	grpcServer := grpc.NewServer()
 
-	auth_pb.RegisterAuthServiceServer(grpcServer, &server{
+	authPb.RegisterAuthServiceServer(grpcServer, &server{
 		DbConnection: config.Connection(),
 	})
 
@@ -48,20 +49,25 @@ func main() {
 
 }
 
-func (s *server) Auth(ctx context.Context, req *auth_pb.AuthRequest) (*auth_pb.AuthResponse, error) {
+func (s *server) Auth(ctx context.Context, req *authPb.AuthRequest) (*authPb.AuthResponse, error) {
 	token := req.GetToken()
-
+	if metad, ok := metadata.FromIncomingContext(ctx); ok {
+		println(fmt.Sprintf("Called Form: %s", metad.Get("serviceName")))
+	}
 	var user modelUser.EntityUsers
 	err := s.DbConnection.Where("api_key = ?", token).First(&user).Error
 	if err != nil {
 		return nil, err
 	} else {
-		js, err := json.Marshal(user)
-		if err != nil {
-			return nil, err
+		js, marshalErr := json.Marshal(user)
+		if marshalErr != nil {
+			return nil, marshalErr
 		}
-		var res auth_pb.AuthResponse
-		json.Unmarshal(js, &res)
+		var res authPb.AuthResponse
+		unmarshalErr := json.Unmarshal(js, &res)
+		if unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
 		return &res, nil
 	}
 }
